@@ -3,6 +3,8 @@
 use Shopware\Components\Model\ModelManager;
 use Shopware\DsnApiCache\Components\CacheInvalidator\Http;
 use Shopware\DsnApiCache\Components\CacheInvalidator\Null;
+use Shopware\DsnApiCache\Components\Header;
+use Shopware\DsnApiCache\Subscriber\Cache;
 
 class Shopware_Plugins_Core_DsnApiCache_Bootstrap extends Shopware_Components_Plugin_Bootstrap
 {
@@ -43,6 +45,17 @@ class Shopware_Plugins_Core_DsnApiCache_Bootstrap extends Shopware_Components_Pl
             'onStartDispatch'
         );
 
+
+        $form = $this->Form();
+        $form->setElement('textarea', 'apiCacheControllers', array(
+            'label' => 'Caching von API-Resourcen',
+            'value' =>
+                "articles/get 3600\r\n" .
+                "articles/index 3600\r\n" .
+                "categories/get 3600\r\n" .
+                "categories/index 3600\r\n"
+        ));
+
         return true;
     }
 
@@ -53,53 +66,38 @@ class Shopware_Plugins_Core_DsnApiCache_Bootstrap extends Shopware_Components_Pl
      */
     public function onStartDispatch(Enlight_Event_EventArgs $args)
     {
-        $this->registerMyComponents();
-        $this->registerCustomModels();
-
         $request = $args->get('request');
-        $cache = $this->getCacheService($request);
 
-        $config = new \Shopware\DsnApiCache\Structs\Config();
-        $config->proxyPrune = false;
-
-        $subscribers = array(
-            new \Shopware\DsnApiCache\Subscriber\CacheInvalidation($cache),
-        );
-
-        if ($config->proxyPrune) {
-            $subscribers[] = new \Shopware\DsnApiCache\Subscriber\Lifecycle($cache);
+        if ($request->getModuleName() != 'api') {
+            return;
         }
 
-        if ($request->getModuleName() == 'api') {
-            $subscribers[] = new \Shopware\DsnApiCache\Subscriber\Cache($cache);
-        }
+        $this->registerMyComponents();
 
-        foreach ($subscribers as $subscriber) {
-            $this->Application()->Events()->addSubscriber($subscriber);
-        }
+        $this->Application()->Events()->addSubscriber($this->getCacheSubscriber());
     }
 
-    private function getCacheService(
-        Enlight_Controller_Request_RequestHttp $request
-    )
+    /**
+     * Read cache controllers from config and prepare them a bit
+     *
+     * @return array
+     */
+    private function getCacheControllers()
     {
-        $canInvalidate = $this->config->proxyPrune && $this->config->proxy !== null && $request && $this->request->getHeader('Surrogate-Capability') !== false;
+        $controllers = $this->Config()->get('apiCacheControllers');
+        if (empty($controllers)) {
+            return array();
+        }
 
-        $invalidator = $canInvalidate ? $this->getHttpInvalidator($request) : new Null();
+        $result = array();
+        $controllers = str_replace(array("\r\n", "\r"), "\n", $controllers);
+        $controllers = explode("\n", trim($controllers));
+        foreach ($controllers as $controller) {
+            list($controller, $cacheTime) = explode(" ", $controller);
+            $result[strtolower($controller)] = (int) $cacheTime;
+        }
 
-        return new \Shopware\DsnApiCache\Components\CacheFacade(
-            new \Shopware\DsnApiCache\Structs\Config(),
-            $invalidator,
-            new \Shopware\DsnApiCache\Components\Header()
-        );
-    }
-
-    public function getHttpInvalidator($request)
-    {
-        return new Http(new \Zend_Http_Client($this->getProxyUrl($request), array(
-            'useragent' => 'Shopware/' . \Shopware::VERSION,
-            'timeout' => 5,
-        )));
+        return $result;
     }
 
     public function registerMyComponents()
@@ -110,48 +108,16 @@ class Shopware_Plugins_Core_DsnApiCache_Bootstrap extends Shopware_Components_Pl
         );
     }
 
-
     /**
-     * Returns the configured proxy-url.
-     *
-     * Fallbacks to autodetection if proxy-url is not configured and $request is given.
-     * Returns null if $request is not given or autodetection fails.
-     *
-     * @param Enlight_Controller_Request_RequestHttp $request
-     * @return string|null
+     * @return Cache
      */
-    public function getProxyUrl(\Enlight_Controller_Request_RequestHttp $request = null)
+    private function getCacheSubscriber()
     {
-        $proxyUrl = trim($this->Config()->get('proxy'));
-        if (!empty($proxyUrl)) {
-            return $proxyUrl;
-        };
-
-        // if proxy url is not set fall back to host detection
-        if ($request !== null && $request->getHttpHost()) {
-            return $request->getScheme() . '://'
-            . $request->getHttpHost()
-            . $request->getBaseUrl() . '/';
-        }
-
-        /** @var ModelManager $em */
-        $em = $this->get('models');
-        $repository = $em->getRepository('Shopware\Models\Shop\Shop');
-
-        /** @var Shopware\Models\Shop\Shop $shop */
-        $shop = $repository->findOneBy(array('default' => true));
-
-        if (!$shop->getHost()) {
-            return null;
-        }
-
-        $url = sprintf(
-            '%s://%s%s/',
-            'http',
-            $shop->getHost(),
-            $shop->getBasePath()
+        return new Cache(
+            new \Shopware\DsnApiCache\Components\Cache(
+                $this->get('events'),
+                $this->getCacheControllers()
+            )
         );
-
-        return $url;
     }
 }

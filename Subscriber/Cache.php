@@ -2,22 +2,24 @@
 
 namespace Shopware\DsnApiCache\Subscriber;
 
+use Shopware\DsnApiCache\Components;
+
 class Cache implements \Enlight\Event\SubscriberInterface
 {
     /**
-     * @var \Shopware\DsnApiCache\Components\CacheFacade
+     * @var Components\Cache
      */
     private $cache;
 
-    public function __construct(\Shopware\DsnApiCache\Components\CacheFacade $cache)
+    public function __construct(Components\Cache $cache)
     {
-        $this->cache = $cache;
+        $this->header = $cache;
     }
 
     public static function getSubscribedEvents()
     {
         return array(
-            'Enlight_Controller_Action_PostDispatchSecure' => 'onPostDispatch'
+            'Enlight_Controller_Action_PostDispatchSecure_Api' => 'onPostDispatch'
         );
     }
 

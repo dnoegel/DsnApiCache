@@ -1,7 +1,7 @@
 {
     "label": {
-        "de": "DsnApiCache",
-        "en": "DsnApiCache"
+        "de": "Shopware API Cache",
+        "en": "Shopware API Cache"
     },
     "copyright": "(c) by Shopware AG",
     "license": "proprietary",
